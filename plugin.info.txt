@@ -1,0 +1,7 @@
+base   gitlabwiki
+author Theo Hussey
+email  husseytg@gmail.com
+date   2020-08-21
+name   gitlabwiki plugin
+desc   Embed GitLab wikis
+url    https://github.com/flaminggoat/dokuwiki-gitlab-wiki
