@@ -82,7 +82,7 @@ class syntax_plugin_gitlabwiki_gitlabwiki extends DokuWiki_Syntax_Plugin
 
                 // Match @project
                 preg_match("/project *= *(['\"])(.*?)\\1/", $match, $project);
-                print_r($project)
+                print_r($project);
                 if (count($project) != 0) {
                     $data['project'] = $project[2];
                 }
