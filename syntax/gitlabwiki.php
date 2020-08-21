@@ -11,6 +11,8 @@ if (!defined('DOKU_INC')) {
     die();
 }
 
+require  __DIR__ .'/../parsedown/Parsedown.php';
+
 class syntax_plugin_gitlabwiki_gitlabwiki extends DokuWiki_Syntax_Plugin
 {
     /**
@@ -47,11 +49,6 @@ class syntax_plugin_gitlabwiki_gitlabwiki extends DokuWiki_Syntax_Plugin
         $this->Lexer->addSpecialPattern('<gitlab-wiki[^>]*/>', $mode, 'plugin_gitlabwiki_gitlabwiki');
     }
 
-//    public function postConnect()
-//    {
-//        $this->Lexer->addExitPattern('</FIXME>', 'plugin_gitlabwiki_gitlabwiki');
-//    }
-
     /**
      * Handle matches of the gitlabwiki syntax
      *
@@ -64,6 +61,8 @@ class syntax_plugin_gitlabwiki_gitlabwiki extends DokuWiki_Syntax_Plugin
      */
     public function handle($match, $state, $pos, Doku_Handler $handler)
     {
+        dbg("DEBUG MESSAGE");
+
         switch($state){
             case DOKU_LEXER_SPECIAL :
                 // Init @data
@@ -82,10 +81,25 @@ class syntax_plugin_gitlabwiki_gitlabwiki extends DokuWiki_Syntax_Plugin
 
                 // Match @project
                 preg_match("/project *= *(['\"])(.*?)\\1/", $match, $project);
-                print_r($project);
+                // print_r($project);
                 if (count($project) != 0) {
                     $data['project'] = $project[2];
                 }
+
+                // Get markdown file from repository instead of project wiki
+                // Match @mdfile
+                preg_match("/mdfile *= *(['\"])(.*?)\\1/", $match, $mdfile);
+                if (count($mdfile) != 0) {
+                    $data['mdfile'] = $mdfile[2];
+                }
+
+                // Use specific ref of file, eg branch name, or commit hash
+                // Match @ref
+                preg_match("/ref *= *(['\"])(.*?)\\1/", $match, $ref);
+                if (count($ref) != 0) {
+                    $data['ref'] = $ref[2];
+                }
+                
 
                 return $data;
             case DOKU_LEXER_UNMATCHED :
@@ -110,7 +124,81 @@ class syntax_plugin_gitlabwiki_gitlabwiki extends DokuWiki_Syntax_Plugin
             return false;
         }
 
+        if($mode != 'xhtml') return false;
+        if($data['error']) {
+            $renderer->doc .= $data['text'];
+            return true;
+        }
+
+        $renderer->info['cache'] = false;
+        switch($data['state']) {
+            case DOKU_LEXER_SPECIAL:
+                if (isset($data['mdfile'])) {
+                    $this->renderGitlabMdFile($renderer, $data);
+                } else {
+                    $this->renderGitlabWiki($renderer, $data);
+                }
+                break;
+            case DOKU_LEXER_ENTER:
+            case DOKU_LEXER_EXIT:
+            case DOKU_LEXER_UNMATCHED:
+                $renderer->doc .= $renderer->_xmlEntities($data['text']);
+                break;
+        }
+
         return true;
+    }
+
+    function renderGitlabWiki($renderer, $data) {
+
+        $client = curl_init();
+        $url_request = $data['server'].'/api/v4/projects/'.urlencode($data['project']).'/wikis?with_content=1';
+        curl_setopt($client, CURLOPT_URL, $url_request);
+        curl_setopt($client, CURLOPT_HTTPHEADER, array("PRIVATE-TOKEN: ".$data['token']));
+        curl_setopt($client, CURLOPT_SSL_VERIFYHOST, '1');
+        curl_setopt($client, CURLOPT_SSL_VERIFYPEER, '0');
+        curl_setopt($client, CURLOPT_RETURNTRANSFER, true);
+        $answer = curl_exec($client);
+        curl_close($client);
+
+        $json = json_decode($answer, true);
+
+        $Parsedown = new Parsedown();
+        $Parsedown->setSafeMode(true);
+
+        foreach($json as &$page) {
+            $renderer->doc .= '<h1>'.$page["title"].'</h1>';
+            $result = $Parsedown->text($page["content"]);
+            $renderer->doc .= $result;
+        }
+    }
+
+    function renderGitlabMdFile($renderer, $data) {
+
+        if(isset($data['ref']) == false) {
+            $data['ref'] = 'master';
+        }
+
+        $client = curl_init();
+        $url_request = $data['server'].'/api/v4/projects/'.urlencode($data['project']).'/repository/files/'.urlencode($data['mdfile']).'?ref='.$data['ref'];
+        curl_setopt($client, CURLOPT_URL, $url_request);
+        curl_setopt($client, CURLOPT_HTTPHEADER, array("PRIVATE-TOKEN: ".$data['token']));
+        curl_setopt($client, CURLOPT_SSL_VERIFYHOST, '1');
+        curl_setopt($client, CURLOPT_SSL_VERIFYPEER, '0');
+        curl_setopt($client, CURLOPT_RETURNTRANSFER, true);
+        $answer = curl_exec($client);
+        curl_close($client);
+
+        $json = json_decode($answer, true);
+
+        $Parsedown = new Parsedown();
+        $Parsedown->setSafeMode(true);
+
+        
+        // $renderer->doc .= '<h1>'.$json["title"].'</h1>';
+        $result = $Parsedown->text(base64_decode($json["content"]));
+        $renderer->doc .= $result;
+        
     }
 }
 
